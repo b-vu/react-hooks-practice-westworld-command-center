@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Radio,
   Icon,
@@ -9,35 +9,91 @@ import {
   Divider,
 } from "semantic-ui-react";
 import "../stylesheets/HostInfo.css";
+import { Log } from "../services/Log";
 
-function HostInfo() {
-  // This state is just to show how the dropdown component works.
-  // Options have to be formatted in this way (array of objects with keys of: key, text, value)
-  // Value has to match the value in the object to render the right text.
+function HostInfo({ selectedHost, areas, handleActiveStatus, handleAreaChange, hosts, handleLogs, fixAreaName, dbNameFix }) {
+  const [selectedHostActivityChange, setSelectedHostActivityChange] = useState(false);
 
-  // IMPORTANT: But whether it should be stateful or not is entirely up to you. Change this component however you like.
-  const [options] = useState([
-    { key: "some_area", text: "Some Area", value: "some_area" },
-    { key: "another_area", text: "Another Area", value: "another_area" },
-  ]);
+  useEffect(() => {
+    const updatedSelectedHost = hosts.find(host => host.firstName === selectedHost.firstName);
 
-  const [value] = useState("some_area");
+    setSelectedHostActivityChange(updatedSelectedHost.active)
+  },[hosts, selectedHost.firstName]);
 
-  function handleOptionChange(e, { value }) {
+  const dropdownAreas = areas.map(area => {
+    return {
+      key: area.id,
+      text: fixAreaName(area.name),
+      value: area.name
+    }
+  });
+
+  const checkAreaLimit = areaName => {
+    let numHosts = 0;
+    const areaToCheck = areas.find(area => fixAreaName(area.name) === areaName);
+
+    hosts.forEach(host => {
+      if(fixAreaName(host.area) === areaName){
+        ++numHosts;
+      }
+    });
+
+    if(areaToCheck.limit > numHosts){
+      return true;
+    }
+    else{
+      return false;
+    }
+  }
+
+  function handleOptionChange(e) {
     // the 'value' attribute is given via Semantic's Dropdown component.
     // Put a debugger or console.log in here and see what the "value" variable is when you pass in different options.
     // See the Semantic docs for more info: https://react.semantic-ui.com/modules/dropdown/#usage-controlled
+    if (checkAreaLimit(e.target.textContent)) {
+      fetch(`http://localhost:3001/hosts/${selectedHost.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          area: dbNameFix(e.target.textContent)
+        })
+      })
+        .then(res => res.json())
+        .then(data => {
+          handleAreaChange(data.area, data.id);
+          handleLogs(Log.notify(`${data.firstName} set in area ${fixAreaName(data.area)}`));
+        });
+    }
+    else{
+      handleLogs(Log.error(`Too many hosts. Cannot add ${selectedHost.firstName} to ${e.target.textContent}`));
+    }
   }
 
   function handleRadioChange() {
-    console.log("The radio button fired");
+    fetch(`http://localhost:3001/hosts/${selectedHost.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        active: !selectedHost.active
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      handleActiveStatus(data.active, data.id);
+      if(data.active) handleLogs(Log.warn(`Activated ${data.firstName}`));
+      else handleLogs(Log.notify(`Decommissioned ${data.firstName}`));
+    });
   }
 
   return (
     <Grid>
       <Grid.Column width={6}>
         <Image
-          src={/* pass in the right image here */ ""}
+          src={selectedHost.imageUrl}
           floated="left"
           size="small"
           className="hostImg"
@@ -47,7 +103,7 @@ function HostInfo() {
         <Card>
           <Card.Content>
             <Card.Header>
-              {"Bob"} | {true ? <Icon name="man" /> : <Icon name="woman" />}
+              {selectedHost.lastName === "n/a" ? selectedHost.firstName : selectedHost.firstName + " " + selectedHost.lastName} | {selectedHost.gender === "Male" ? <Icon name="man" /> : <Icon name="woman" />}
               {/* Think about how the above should work to conditionally render the right First Name and the right gender Icon */}
             </Card.Header>
             <Card.Meta>
@@ -55,8 +111,8 @@ function HostInfo() {
               {/* Checked takes a boolean and determines what position the switch is in. Should it always be true? */}
               <Radio
                 onChange={handleRadioChange}
-                label={"Active"}
-                checked={true}
+                label={selectedHostActivityChange ? "Active" : "Decommissioned"}
+                checked={selectedHostActivityChange}
                 slider
               />
             </Card.Meta>
@@ -64,8 +120,8 @@ function HostInfo() {
             Current Area:
             <Dropdown
               onChange={handleOptionChange}
-              value={value}
-              options={options}
+              value={selectedHost.area}
+              options={dropdownAreas}
               selection
             />
           </Card.Content>
